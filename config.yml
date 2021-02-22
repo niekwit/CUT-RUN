@@ -1,0 +1,3 @@
+hg19:
+  index_path: "/home/niek/Documents/references/bowtie2-index/hg19/bowtie2-hg19"
+  black_list_path: "/home/niek/Documents/references/blacklists/Human/hg19/wgEncodeDukeMapabilityRegionsExcludable.bed"
