@@ -112,7 +112,7 @@ if [[ ! -d  "$bam_folder" ]];
 			echo "$base_name" >> align.log
 			align_output="bam/$base_name.bam"
 			echo "Aligning $base_name"
-			bowtie2 -p "$threads" --local --very-sensitive-local --nounal --no-mixed --no-discordant --phred33 -I 10 -X 700 -x "$index_path" -1 "$read1" -2 "$read2" 2>> align.log | samtools view -q 15 -F 260 -bS -@ "$threads" - | samtools sort -@ "$threads" - > "$align_output"
+			bowtie2 -p "$threads" --local --very-sensitive-local --no-unal --no-mixed --no-discordant --phred33 -I 10 -X 700 -x "$index_path" -1 "$read1" -2 "$read2" 2>> align.log | samtools view -q 15 -F 260 -bS -@ "$threads" - | samtools sort -@ "$threads" - > "$align_output"
 		done
 fi                                                                                                                                      
 
