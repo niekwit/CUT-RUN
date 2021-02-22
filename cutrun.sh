@@ -1,22 +1,23 @@
 #!/bin/bash
 
-### Author: Niek Wit (University of Cambridge) 2021 ###
+### Author: Niek Wit (University of Cambridge) 2021 
 
-SCRIPT_DIR=$(find $HOME -type d -name "CUT-RUN")
 threads=""
-working_dir=$(pwd)
-align_mm=0
 rename_config=""
 genome=""
-PICARD=$(find $HOME -name picard.jar)
 dedup=""
+cutoff=""
+align_mm=0
 
-usage() {                                    
+PICARD=$(find $HOME -name picard.jar)
+SCRIPT_DIR=$(find $HOME -type d -name "CUT-RUN")
+
+function usage {                                    
 	echo "Usage: $0 [-g <genome build>] [-r OPTIONAL:renames NGS files] [-m <INT> mismatches allowed for alignment (standard is zero) OPTIONAL] [-t <INT> number of CPU threads to be used]"
 	exit 2
 }
 
-while getopts 't:g:rdm:?h' c
+while getopts 't:g:rdm:f:?h' c
 do
 	case $c in
 		t) 
@@ -26,14 +27,17 @@ do
 		r)	
 			rename_config="rename.config";;
 		d)	
-			dedup="yes";;
+			dedup="TRUE";;
 		m)  
-			align_mm=$OPTARG;;	
+			align_mm=$OPTARG;;
+        f) 
+			cutoff=$OPTARG;;
 		h|?) 	
 			usage;;
 	esac
 done
 
+#checking input variables
 if [[ $align_mm == 0 ]] || [[ $align_mm == 1 ]];
 	then
 		:
@@ -43,13 +47,19 @@ if [[ $align_mm == 0 ]] || [[ $align_mm == 1 ]];
 		exit 1
 fi
 
+if [[ ! $cutoff =~ ^-?[0-9]+$ ]];
+	then
+		echo "ERROR: filter cutoff should be integer"
+		exit 1
+fi
+
 if [[ -z "$threads" ]];
 	then
 		threads=$(nproc --all)
 fi
 
-#renames files if -r flag and rename template have been given
-if [[ ! -z "$rename_config" ]];
+#renames files if -r flag, and rename template is present
+if [[ ! -z "$rename_config" ]] && [[ -e "rename_config" ]];
 	then
 		input=$rename_config
 		while IFS= read -r line
@@ -116,7 +126,8 @@ if [[ ! -d  "$bam_folder" ]];
 fi                                                                                                                                      
 
 #deduplication
-if [[ "$dedup" == "yes" ]];
+dedup_folder="deduplication/"
+if [[ "$dedup" == "TRUE" ]] && [[ ! -d  "$dedup_folder" ]];
 	then
 		mkdir -p deduplication
 		touch deduplication.log
@@ -127,6 +138,33 @@ if [[ "$dedup" == "yes" ]];
 			dedup_output=deduplication/${dedup_output##*/}
 			java -jar $PICARD MarkDuplicates INPUT="$bam" OUTPUT="$dedup_output" REMOVE_DUPLICATES=TRUE  METRICS_FILE=$dedup_output-metric.txt 2>> deduplication.log
 		done
+else
+    echo "Deduplication already performed"
 fi
 
+#filter out reads below cutoff
+filter_folder="filter/"
 
+function filter_reads {
+	file_name="${bam##*/}"
+	base_name=${file_name%.bam}
+	samtools view -h "$bam" | awk -v x=$cutoff 'length($10) < x || $1 ~ /^@/' | samtools view -bS - > "filter/$base_name.${cutoff}bp.bam"
+} #function to filter reads out below given cutoff
+
+if [[ ! -d  "$filter_folder" ]] && [[ -d  "$dedup_folder" ]];
+	then
+		mkdir filter
+		for bam in deduplication/*.bam
+		do
+			filter_reads
+		done
+elif [[ ! -d  "$filter_folder" ]] && [[ ! -d  "$dedup_folder" ]];
+	then
+		mkdir filter_reads
+		for bam in bam/*.bam
+		do
+			filter
+		done
+else
+	echo "Size filtering already performed"
+fi
