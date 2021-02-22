@@ -1,59 +1,132 @@
 #!/bin/bash
 
-trimmomatic=$(find $HOME -name trimmomatic-0.39.jar)
-adapters=$(find $HOME -type d -name "Trimmomatic-0.39")
-adapters="${adapters}/adapters"
+### Author: Niek Wit (University of Cambridge) 2021 ###
+
+SCRIPT_DIR=$(find $HOME -type d -name "CUT-RUN")
+threads=""
+working_dir=$(pwd)
+align_mm=0
+rename_config=""
+genome=""
 PICARD=$(find $HOME -name picard.jar)
+dedup=""
 
-read_length=42
+usage() {                                    
+	echo "Usage: $0 [-g <genome build>] [-r OPTIONAL:renames NGS files] [-m <INT> mismatches allowed for alignment (standard is zero) OPTIONAL] [-t <INT> number of CPU threads to be used]"
+	exit 2
+}
 
-read1="raw-data/SRR10044669_GSM4043375_GATA1_CD34_rep1_CD34_differentiated_Homo_sapiens_OTHER_1.fastq.gz"
-read2="${read1%_1.fastq.gz}_2.fastq.gz"
+while getopts 't:g:rdm:?h' c
+do
+	case $c in
+		t) 
+			threads=$OPTARG;;
+		g) 
+			genome="$OPTARG";;
+		r)	
+			rename_config="rename.config";;
+		d)	
+			dedup="yes";;
+		m)  
+			align_mm=$OPTARG;;	
+		h|?) 	
+			usage;;
+	esac
+done
 
-read1o="trim/${read1##*/}"
-read2o="trim/${read2##*/}"
+if [[ $align_mm == 0 ]] || [[ $align_mm == 1 ]];
+	then
+		:
+	else
+		echo "ERROR: -m parameter must be 0 or 1"
+		usage
+		exit 1
+fi
 
-output_read1_paired="${read1o%_1.fastq.gz}_paired_1.fastq.gz"
-output_read1_unpaired="${read1o%_1.fastq.gz}_unpaired_1.fastq.gz"
+if [[ -z "$threads" ]];
+	then
+		threads=$(nproc --all)
+fi
 
+#renames files if -r flag and rename template have been given
+if [[ ! -z "$rename_config" ]];
+	then
+		input=$rename_config
+		while IFS= read -r line
+		do
+			original_file=$(echo "$line" | cut -d ";" -f 1) #splits line of config file into original file name
+			new_file=$(echo "$line" | cut -d ";" -f 2) #splits line of config file into new file name
+			mv "raw-data/${original_file}" "raw-data/${new_file}"
+		done < "$input"
+fi
 
-output_read2_paired="${read2o%_2.fastq.gz}_paired_2.fastq.gz"
-output_read2_unpaired="${read2o%_2.fastq.gz}_unpaired_2.fastq.gz"
+#checks if file extension is .fq or .fastq
+input_format=$(ls raw-data/*.gz | head -1)
+if [[ $input_format == *"fastq"* ]]
+	then
+  		input_extension="fastq.gz"
+elif [[ $input_format == *"fq"* ]]
+	then
+  		input_extension="fq.gz"		
+fi
 
+#Fastq quality control
+fastqc_folder="fastqc/"
+if [[ ! -d  "$fastqc_folder" ]]; 
+	then
+		echo "Performing FastQC"
+		mkdir fastqc
+		fastqc -q --threads "$threads" -o fastqc/ raw-data/*$input_extension
+		echo "Performing MultiQC"
+		multiqc -o fastqc/ fastqc/ . 2>> multiqc.log
+fi
 
-mkdir -p trim
+#trimming samples
+trim_folder="trim/"
+if [[ ! -d  "$trim_folder" ]];
+	then
+		echo "Performing read trimming"
+		mkdir -p trim
+		for read1 in raw-data/*"_1.$input_extension"
+		do 
+			echo $read1 >> trim.log
+			read2="${read1%_1."$input_extension"}_2."$input_extension""
+			trim_galore -j 4 -o ./trim --paired $read1 $read2 2>> trim.log
+		done
+fi
 
-#first trimming
-java -jar "$trimmomatic" PE -threads 40 -phred33 "$read1" "$read2" "$output_read1_paired" "$output_read1_unpaired" "$output_read2_paired" "$output_read2_unpaired" ILLUMINACLIP:"$adapters/TruSeq3-PE.fa":2:15:4:4:true LEADING:20 TRAILING:20 SLIDINGWINDOW:4:15 MINLEN:25
+#aligning samples (bowtie2 settings:Skene et al 2018 Nature Protocols)
+index_path=$(cat "$SCRIPT_DIR/config.yml" | shyaml get-value $genome.index_path)
+#black_list_path=$(cat "$SCRIPT_DIR/config.yml" | shyaml get-value $genome.black_list_path)
 
-#second trimming:
-#kseq_test has to be manually compiled
+bam_folder="bam/"
+if [[ ! -d  "$bam_folder" ]];
+	then
+		mkdir -p bam
+		touch align.log
+		for read1 in trim/*"_1_val_1.fq.gz"
+		do 
+			read2="${read1%_1_val_1.fq.gz}_2_val_2.fq.gz"
+			file_name="${read1##*/}"
+			base_name="${file_name%_1_val_1.fq.gz}"
+			echo "$base_name" >> align.log
+			align_output="bam/$base_name.bam"
+			echo "Aligning $base_name"
+			bowtie2 -p "$threads" --local --very-sensitive-local --nounal --no-mixed --no-discordant --phred33 -I 10 -X 700 -x "$index_path" -1 "$read1" -2 "$read2" 2>> align.log | samtools view -q 15 -F 260 -bS -@ "$threads" - | samtools sort -@ "$threads" - > "$align_output"
+		done
+fi                                                                                                                                      
 
-mkdir -p trim2
-output_read1_paired2="trim2/${output_read1_paired##*/}"
-output_read2_paired2="trim2/${output_read2_paired##*/}"
-
-kseq_test "$output_read1_paired" "$read_length" "$output_read1_paired2"
-kseq_test "$output_read2_paired" "$read_length" "$output_read2_paired2"
-
-#alignment
-
-mkdir -p bam
-bowtie2_output="bam/SRR10044669_GSM4043375_GATA1_CD34_rep1_CD34_differentiated_Homo_sapiens_OTHER.bam"
-bowtie2 -p 42 --dovetail --phred33 -x "/home/niek/Documents/references/bowtie2-index/hg19/bowtie2-hg19" -1 "$output_read1_paired2" -2 "$output_read2_paired2" 2> align.log | samtools view -bS - > "$bowtie2_output"
-
-mkdir -p {sorted,dup.marked,dedup}
-
-#sorting bam files
-java -jar "$PICARD" SortSam INPUT="$bowtie2_output" OUTPUT="sorted/$bowtie2_output" SORT_ORDER=coordinate
-
-#marking duplicates
-java -jar "$PICARD" MarkDuplicates INPUT="sorted/$bowtie2_output" OUTPUT="dup.marked/$bowtie2_output" METRICS_FILE=metrics.txt
-
-#removing duplicates
-java -jar "$PICARD" MarkDuplicates INPUT="sorted/$bowtie2_output" OUTPUT="dedup/$bowtie2_output" METRICS_FILE=metrics."$bowtie2_output".txt REMOVE_DUPLICATES=true
-
-mkdir -p {sorted.120bp dup.marked.120bp dedup.120bp}
-
+#deduplication
+if [[ "$dedup" == "yes" ]];
+	then
+		mkdir -p deduplication
+		for bam in bam/*.bam
+		do
+			echo "Removing duplicates $bam"
+			dedup_output="${file%.bam}-dedup.bam"
+			dedup_output="deduplication/${dedup_output##*/}"
+			java -jar $PICARD MarkDuplicates INPUT=$file OUTPUT=$dedup_output REMOVE_DUPLICATES=TRUE METRICS_FILE=$dedup_output-metric.txt 2>> deduplication.log
+		done
+fi
 
 
