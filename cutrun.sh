@@ -96,14 +96,13 @@ if [[ ! -d  "$trim_folder" ]];
 fi
 
 #aligning samples (bowtie2 settings:Skene et al 2018 Nature Protocols)
-index_path=$(cat "$SCRIPT_DIR/config.yml" | shyaml get-value $genome.index_path)
-#black_list_path=$(cat "$SCRIPT_DIR/config.yml" | shyaml get-value $genome.black_list_path)
-
 bam_folder="bam/"
 if [[ ! -d  "$bam_folder" ]];
 	then
 		mkdir -p bam
 		touch align.log
+		index_path=$(cat "$SCRIPT_DIR/config.yml" | shyaml get-value $genome.index_path)
+		#black_list_path=$(cat "$SCRIPT_DIR/config.yml" | shyaml get-value $genome.black_list_path)
 		for read1 in trim/*"_1_val_1.fq.gz"
 		do 
 			read2="${read1%_1_val_1.fq.gz}_2_val_2.fq.gz"
@@ -123,9 +122,9 @@ if [[ "$dedup" == "yes" ]];
 		for bam in bam/*.bam
 		do
 			echo "Removing duplicates $bam"
-			dedup_output="${file%.bam}-dedup.bam"
+			dedup_output="${bam%.bam}-dedup.bam"
 			dedup_output="deduplication/${dedup_output##*/}"
-			java -jar $PICARD MarkDuplicates INPUT=$file OUTPUT=$dedup_output REMOVE_DUPLICATES=TRUE METRICS_FILE=$dedup_output-metric.txt 2>> deduplication.log
+			java -jar $PICARD MarkDuplicates INPUT="$bam" OUTPUT="$dedup_output" REMOVE_DUPLICATES=TRUE METRICS_FILE=$dedup_output-metric.txt 2>> deduplication.log
 		done
 fi
 
