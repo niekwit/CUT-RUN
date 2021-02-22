@@ -59,7 +59,7 @@ if [[ -z "$threads" ]];
 fi
 
 #renames files if -r flag, and rename template is present
-if [[ ! -z "$rename_config" ]] && [[ -e "rename_config" ]];
+if [[ ! -z "$rename_config" ]] && [[ -e "rename.config" ]];
 	then
 		input=$rename_config
 		while IFS= read -r line
