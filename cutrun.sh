@@ -119,12 +119,13 @@ fi
 if [[ "$dedup" == "yes" ]];
 	then
 		mkdir -p deduplication
+		touch deduplication.log
 		for bam in bam/*.bam
 		do
 			echo "Removing duplicates $bam"
 			dedup_output="${bam%.bam}-dedup.bam"
-			dedup_output="deduplication/${dedup_output##*/}"
-			java -jar $PICARD MarkDuplicates INPUT="$bam" OUTPUT="$dedup_output" REMOVE_DUPLICATES=TRUE METRICS_FILE=deduplication/$dedup_output-metric.txt 2>> deduplication.log
+			dedup_output=deduplication/${dedup_output##*/}
+			java -jar $PICARD MarkDuplicates INPUT="$bam" OUTPUT="$dedup_output" REMOVE_DUPLICATES=TRUE  METRICS_FILE=$dedup_output-metric.txt 2>> deduplication.log
 		done
 fi
 
