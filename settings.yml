@@ -1,0 +1,3 @@
+peak-calling:
+  tool: "MACS2"
+  config: "TF" ##TF for transcription factors, histone for histone(marks)
