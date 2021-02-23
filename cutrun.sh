@@ -30,7 +30,7 @@ do
 			dedup="TRUE";;
 		m)  
 			align_mm=$OPTARG;;
-        f) 
+        	f) 
 			cutoff=$OPTARG;;
 		h|?) 	
 			usage;;
@@ -49,13 +49,17 @@ fi
 
 if [[ ! $cutoff =~ ^-?[0-9]+$ ]];
 	then
-		echo "ERROR: filter cutoff should be integer"
+		echo "ERROR: filter cutoff should be an integer."
 		exit 1
 fi
 
-if [[ -z "$threads" ]];
+if [[ -z "$threads" ]] && [[ $threads =~ ^-?[0-9]+$ ]];
 	then
 		threads=$(nproc --all)
+elif [[ ! -z "$threads" ]] && [[ ! $threads =~ ^-?[0-9]+$ ]]
+	then
+		echo "ERROR: number of threads should be an integer."
+		exit 1
 fi
 
 #renames files if -r flag, and rename template is present
@@ -84,11 +88,13 @@ fi
 fastqc_folder="fastqc/"
 if [[ ! -d  "$fastqc_folder" ]]; 
 	then
-		echo "Performing FastQC"
+		echo "Performing FASTQC"
 		mkdir fastqc
 		fastqc -q --threads "$threads" -o fastqc/ raw-data/*$input_extension
 		echo "Performing MultiQC"
 		multiqc -o fastqc/ fastqc/ . 2>> multiqc.log
+else
+	echo "FASTQC/MultiQC already performed"
 fi
 
 #trimming samples
@@ -103,6 +109,8 @@ if [[ ! -d  "$trim_folder" ]];
 			read2="${read1%_1."$input_extension"}_2."$input_extension""
 			trim_galore -j 4 -o ./trim --paired $read1 $read2 2>> trim.log
 		done
+else
+	echo "Trimming already performed"	
 fi
 
 #aligning samples (bowtie2 settings:Skene et al 2018 Nature Protocols)
@@ -111,8 +119,8 @@ if [[ ! -d  "$bam_folder" ]];
 	then
 		mkdir -p bam
 		touch align.log
-		index_path=$(cat "$SCRIPT_DIR/config.yml" | shyaml get-value $genome.index_path)
-		#black_list_path=$(cat "$SCRIPT_DIR/config.yml" | shyaml get-value $genome.black_list_path)
+		index_path=$(cat "$SCRIPT_DIR/config.yml" | shyaml get-value genome.$genome.0 | awk '{print$2}')
+		#black_list_path=$(cat "$SCRIPT_DIR/config.yml" | shyaml get-value genome.$genome.1 | awk '{print$2}')
 		for read1 in trim/*"_1_val_1.fq.gz"
 		do 
 			read2="${read1%_1_val_1.fq.gz}_2_val_2.fq.gz"
@@ -123,6 +131,8 @@ if [[ ! -d  "$bam_folder" ]];
 			echo "Aligning $base_name"
 			bowtie2 -p "$threads" --local --very-sensitive-local --no-unal --no-mixed --no-discordant --phred33 -I 10 -X 700 -x "$index_path" -1 "$read1" -2 "$read2" 2>> align.log | samtools view -q 15 -F 260 -bS -@ "$threads" - | samtools sort -@ "$threads" - > "$align_output"
 		done
+else
+	echo "Alignment already performed"
 fi                                                                                                                                      
 
 #deduplication
@@ -139,7 +149,7 @@ if [[ "$dedup" == "TRUE" ]] && [[ ! -d  "$dedup_folder" ]];
 			java -jar $PICARD MarkDuplicates INPUT="$bam" OUTPUT="$dedup_output" REMOVE_DUPLICATES=TRUE  METRICS_FILE=$dedup_output-metric.txt 2>> deduplication.log
 		done
 else
-    echo "Deduplication already performed"
+    echo "Deduplication already performed/not selected"
 fi
 
 #filter out reads below cutoff
@@ -148,23 +158,29 @@ filter_folder="filter/"
 function filter_reads {
 	file_name="${bam##*/}"
 	base_name=${file_name%.bam}
-	samtools view -h "$bam" | awk -v x=$cutoff 'length($10) < x || $1 ~ /^@/' | samtools view -bS - > "filter/$base_name.${cutoff}bp.bam"
+	samtools view -h -@ "$threads" "$bam" | awk -v x=$cutoff 'length($10) < x || $1 ~ /^@/' | samtools view -bS -@ "$threads" - > "filter/$base_name.${cutoff}bp.bam"
 } #function to filter reads out below given cutoff
 
 if [[ ! -d  "$filter_folder" ]] && [[ -d  "$dedup_folder" ]];
 	then
 		mkdir filter
+		echo "Filtering reads <${cutoff} bp"
 		for bam in deduplication/*.bam
 		do
 			filter_reads
 		done
 elif [[ ! -d  "$filter_folder" ]] && [[ ! -d  "$dedup_folder" ]];
 	then
-		mkdir filter_reads
+		mkdir filter
+		echo "Filtering reads <${cutoff} bp"
 		for bam in bam/*.bam
 		do
-			filter
+			filter_reads
 		done
 else
 	echo "Size filtering already performed"
 fi
+
+#peak calling
+
+
