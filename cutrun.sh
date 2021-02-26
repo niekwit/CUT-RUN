@@ -172,7 +172,7 @@ if [[ ! -d  "$filter_folder" ]] && [[ -d  "$dedup_folder" ]];
 elif [[ ! -d  "$filter_folder" ]] && [[ ! -d  "$dedup_folder" ]];
 	then
 		mkdir filter
-		echo "Filtering reads <${cutoff} bp"
+		echo "Filtering reads <${cutff} bp"
 		for bam in bam/*.bam
 		do
 			filter_reads
