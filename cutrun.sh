@@ -167,7 +167,7 @@ fi
 #generate histogram of reads lengths
 #GSE125988
 
-echo "Generating histograms of read counts"
+echo "Generating histograms of read lengths"
 reads_length_folder=read-counts
 if [[ "$reads_length" == "TRUE" ]] && [[ ! -d  "$reads_length_folder" ]];
 	then
@@ -186,9 +186,6 @@ if [[ "$reads_length" == "TRUE" ]] && [[ ! -d  "$reads_length_folder" ]];
 	else
 		echo "Read count histograms already generated"
 fi
-
-#echo "count read-length" > read-length.txt
-#samtools view -@48 bam/CUTRUN.H3K4me3.bam | head -n 1000000 | cut -f 10 | perl -ne 'chomp;print length($_) . "\n"' | sort | uniq -c >> read-length.txt
 
 : <<'END'
 #create bigWig files
