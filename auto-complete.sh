@@ -5,7 +5,7 @@
 
 #finds CRISPR libary names
 SCRIPT_DIR=$(find $HOME -type d -name "CUT-RUN")
-genome_list=$(cat "$SCRIPT_DIR/config.yml" | shyaml get-values genome | grep -v ':' | tr "\n" " ")
+genome_list=$(cat "$SCRIPT_DIR/genome.yml" | shyaml get-values genome | grep -v ':' | tr "\n" " ")
 
 #enables autocompletion of `-g` flag
 function libs()
