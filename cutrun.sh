@@ -13,6 +13,7 @@ reads_length=""
 
 PICARD=$(find $HOME -name picard.jar)
 SCRIPT_DIR=$(find $HOME -type d -name "CUT-RUN")
+WORK_DIR=$(pwd)/
 
 function usage {                                    
 	echo "Usage: $0 [-g <genome build>] [-r OPTIONAL:renames NGS files] [-m <INT> mismatches allowed for alignment (standard is zero) OPTIONAL] [-t <INT> number of CPU threads to be used]"
@@ -173,11 +174,14 @@ if [[ "$reads_length" == "TRUE" ]] && [[ ! -d  "$reads_length_folder" ]];
 		mkdir "$reads_length_folder"
 		for file in bam/*.bam
 		do 
+			#get frequency of read lengths
 			base_file="${file%.bam}"
 			base_file="${base_file##*/}"
 			out_file="$reads_length_folder/read-length-$base_file.txt"
-			echo "count read-length" > "$reads_length_folder"/read-length-$base_file.txt
-			samtools view -@$threads "$file" | head -n 1000000 | cut -f 10 | perl -ne 'chomp;print length($_) . "\n"' | sort | uniq -c >> "$out_file"
+			echo "read_length" >> "$out_file"
+			samtools view -@$threads "$file" | head -n 1000000 | cut -f 10 | perl -ne 'chomp;print length($_) . "\n"' | sort >> "$out_file" 
+			#plot histogram of frequency of read lengths
+			Rscript $SCRIPT_DIR/read_length.R "$WORK_DIR" "$out_file" "$base_file"
 		done
 	else
 		echo "Read count histograms already generated"
