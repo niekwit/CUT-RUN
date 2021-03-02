@@ -4,12 +4,16 @@ args <- commandArgs(trailingOnly=TRUE)
 setwd(args[1])
 df <- read.csv(file=args[2])
 base.file <- args[3]
+outdir <- args[4]
 
 x_low <- min(df$read_length)
 x_high <- max(df$read_length)
 x_range <- x_low:x_high
 mean.length <- mean(df$read_length)
-list <- hist(df$read_length, breaks=x_range, freq=TRUE)
+list <- suppressWarnings(hist(df$read_length, 
+             breaks=x_range, 
+             freq=TRUE,
+             plot=FALSE))
 y.value.label <- max(list$counts)/sum(list$count)
 
 p <- ggplot(data=df, aes(x=read_length)) +
@@ -35,4 +39,5 @@ p <- ggplot(data=df, aes(x=read_length)) +
                          round(mean.length,1)), 
            size=5)
 
-ggsave(filename=paste0("read-counts/","Read-length-frequency",base.file,".png"), plot=p )
+ggsave(filename=paste0(outdir,"/","Read-length-frequency",base.file,".png"),
+       plot=p )
