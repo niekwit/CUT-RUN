@@ -128,7 +128,7 @@ fi
 
 ###aligning samples 
 bam_folder="bam/"
-
+#to do: remove blacklisted regions
 if [[ ! -d "$bam_folder" ]];
 	then
 		mkdir -p bam
@@ -357,15 +357,59 @@ if [[ "$ngsplot" == "TRUE" ]];
 				bam_folder=$dedup_folder
 				ngsplot_folder=$ngsplot_folder_dedup
 				ngs_plot
+		else
+			echo "Metagene plots and heatmaps already generated"
 		fi
 fi
 
 
 ###peak calling
+#Load MACS2 settings
+format=$(cat settings.yaml | shyaml get-value MACS2.format)
+macs2_genome=$(cat settings.yaml | shyaml get-value MACS2.genome)
+genome_size=$(cat settings.yaml | shyaml get-value MACS2.genome-size)
+qvalue=$(cat settings.yaml | shyaml get-value MACS2.qvalue)
+extsize=$(cat settings.yaml | shyaml get-value MACS2.extsize)
+
 if [[ "$peak" == "TRUE" ]];
 	then
+		#checking MACS2 settings
+		if [[ $format != "ELAND" ]] && [[ $format != "BED" ]] && [[ $format != "ELANDMULTI" ]] && [[ $format != "ELANDEXPORT" ]] && [[ $format != "SAM" ]] && [[ $format != "BAM" ]] && [[ $format != "BOWTIE" ]] && [[ $format != "BAMPE" ]] && [[ $format != "BEDPE" ]] && [[ $format != "AUTO" ]];
+			then
+				echo "ERROR: invalid file format chosen."
+				echo "Compatible formats: ELAND, BED, ELANDMULTI, ELANDEXPORT, SAM, BAM, BOWTIE, BAMPE or BEDPE"
+				echo "Automatic detection can be set with AUTO (does not work with BEDPE or BEDPE formats)"
+				exit 1
+		fi
+
+		if [[ $macs2_genome != "hs" ]] && [[ $macs2_genome != "mm" ]] && [[ $macs2_genome != "ce" ]] && [[ $macs2_genome != "dm" ]]
+			then
+				echo "ERROR: invalid genome chosen."
+				echo "Available genomes: hs, mm, ce and dm"
+
+		if [[ ! $genome_size =~ ^-?[0-9]+$ ]];
+			then
+				echo "ERROR: genome size should be an integer."
+				exit 1
+		fi
+
+		if [[ ! $qvalue > 0.05 ]];
+			then
+				echo "WARNING: q-value is higher than default 0.05"
+				exit 1
+		fi
+		
 		echo "Calling and annotating peaks"
+		mkdir -p peaks
+		sed '1d' macs2-samples.conf > macs2-samples-temp.conf #removes header from settings part
+		input="macs2-samples-temp.conf"
+		while IFS= read -r line
+		do
+			macs2_sample=$(echo $line | awk '{print$1}')
+			macs2_input=$(echo $line | awk '{print$2}')
+			macs2_output_name=$(echo $line | awk '{print$3}')
+			macs2 callpeak -t "$macs2_sample" -c "$macs2_input" -n "$macs2_output_name" --outdir "peaks/$macs2_output_name" -g "$genome" -f "$format" --qvalue "$qvalue" --extsize "$extsize" -B 2>> peak.log #MACS2
+			annotatePeaks.pl "peaks/${macs2_output_name}_summits.bed" $genome > "peaks/${macs2_output_name}_annotated_peaks.txt" 2>> peak.log #HOMER
+		done < "$input"
+		rm macs2-samples-temp.conf
 fi
-
-
-
