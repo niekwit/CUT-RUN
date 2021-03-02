@@ -44,7 +44,7 @@ do
 	esac
 done
 
-#checking input variables
+###checking input variables
 if [[ $align_mm == 0 ]] || [[ $align_mm == 1 ]];
 	then
 		:
@@ -69,7 +69,7 @@ elif [[ ! -z "$threads" ]] && [[ ! $threads =~ ^-?[0-9]+$ ]]
 		exit 1
 fi
 
-#renames files if -r flag, and rename template is present
+###renames files if -r flag, and rename template is present
 if [[ ! -z "$rename_config" ]] && [[ -e "rename.config" ]];
 	then
 		input=$rename_config
@@ -81,7 +81,7 @@ if [[ ! -z "$rename_config" ]] && [[ -e "rename.config" ]];
 		done < "$input"
 fi
 
-#checks if file extension is .fq or .fastq
+###checks if file extension is .fq or .fastq
 input_format=$(ls raw-data/*.gz | head -1)
 if [[ $input_format == *"fastq"* ]]
 	then
@@ -91,7 +91,7 @@ elif [[ $input_format == *"fq"* ]]
   		input_extension="fq.gz"		
 fi
 
-#Fastq quality control
+###Fastq quality control
 fastqc_folder="fastqc/"
 if [[ ! -d  "$fastqc_folder" ]]; 
 	then
@@ -104,7 +104,7 @@ else
 	echo "FASTQC/MultiQC already performed"
 fi
 
-#trimming samples
+###trimming samples
 trim_folder="trim/"
 if [[ ! -d  "$trim_folder" ]];
 	then
@@ -120,7 +120,7 @@ else
 	echo "Trimming already performed"	
 fi
 
-#aligning samples 
+###aligning samples 
 bam_folder="bam/"
 
 if [[ ! -d  "$bam_folder" ]];
@@ -147,7 +147,7 @@ fi
 #--dovetail --phred33
 #--local --very-sensitive-local --no-unal --no-mixed --no-discordant --phred33 -I 10 -X 700
 
-#deduplication
+###deduplication
 dedup_folder="deduplication/"
 if [[ "$dedup" == "TRUE" ]] && [[ ! -d  "$dedup_folder" ]];
 	then
@@ -159,133 +159,121 @@ if [[ "$dedup" == "TRUE" ]] && [[ ! -d  "$dedup_folder" ]];
 			dedup_output="${bam%.bam}-dedup.bam"
 			dedup_output=deduplication/${dedup_output##*/}
 			java -jar $PICARD MarkDuplicates INPUT="$bam" OUTPUT="$dedup_output" REMOVE_DUPLICATES=TRUE  METRICS_FILE=$dedup_output-metric.txt 2>> deduplication.log
+			samtools index -b -@$threads "$dedup_output"
 		done
 else
     echo "Deduplication already performed/not selected"
 fi
 
-#generate histogram of reads lengths
+###generate histogram of reads lengths
 #GSE125988
 
-echo "Generating histograms of read lengths"
-reads_length_folder=read-counts
+function reads_length {
+#get frequency of read lengths
+base_file="${file%.bam}"
+base_file="${base_file##*/}"
+out_file="$outdir/read-length-$base_file.txt"
+echo "read_length" >> "$out_file"
+samtools view -@$threads "$file" | head -n 1000000 | cut -f 10 | perl -ne 'chomp;print length($_) . "\n"' | sort >> "$out_file" 
+#plot histogram of frequency of read lengths
+Rscript $SCRIPT_DIR/read_length.R "$WORK_DIR" "$out_file" "$base_file" "$outdir"
+}
+
+reads_length_folder=read-lengths
+reads_length_folder_dedup="$reads_length_folder"-dedup
 if [[ "$reads_length" == "TRUE" ]] && [[ ! -d  "$reads_length_folder" ]];
 	then
+		echo "Generating histograms of read lengths"
 		mkdir "$reads_length_folder"
+		outdir="$reads_length_folder"
 		for file in bam/*.bam
 		do 
-			#get frequency of read lengths
-			base_file="${file%.bam}"
-			base_file="${base_file##*/}"
-			out_file="$reads_length_folder/read-length-$base_file.txt"
-			echo "read_length" >> "$out_file"
-			samtools view -@$threads "$file" | head -n 1000000 | cut -f 10 | perl -ne 'chomp;print length($_) . "\n"' | sort >> "$out_file" 
-			#plot histogram of frequency of read lengths
-			Rscript $SCRIPT_DIR/read_length.R "$WORK_DIR" "$out_file" "$base_file"
+			reads_length
 		done
-	else
-		echo "Read count histograms already generated"
+elif [[ "$reads_length" == "TRUE" ]] && [[ ! -d  "$reads_length_folder_dedup" ]];
+	then
+		echo "Generating histograms of read lengths"
+		mkdir "$reads_length_folder_dedup"
+		outdir="$reads_length_folder_dedup"
+		for file in $dedup_folder/*.bam
+		do 
+			reads_length
+		done
+else
+		echo "Read length histograms already generated"
 fi
 
-: <<'END'
-#create bigWig files
+
+###create bigWig files
 #load bamCoverage settings:
-binsize=$(cat settings.yaml | shyaml get-value BigWig.binSize)
-normalizeusing=$(cat settings.yaml | shyaml get-value BigWig.normalizeUsing)
-extendreads=$(cat settings.yaml | shyaml get-value BigWig.extendReads)
-effectivegenomesize=$(cat settings.yaml | shyaml get-value BigWig.effectiveGenomeSize)
-#checking bamCoverage settings:
-if [[ ! $binsize =~ ^-?[0-9]+$ ]];
+if [[ "$big_wig" == "TRUE" ]];
 	then
-		echo "ERROR: binSize should be an integer."
-		exit 1
-fi
+		binsize=$(cat settings.yaml | shyaml get-value bigWig.binSize)
+		normalizeusing=$(cat settings.yaml | shyaml get-value bigWig.normalizeUsing)
+		extendreads=$(cat settings.yaml | shyaml get-value bigWig.extendReads)
+		effectivegenomesize=$(cat settings.yaml | shyaml get-value bigWig.effectiveGenomeSize)
+		#checking bamCoverage settings:
+		if [[ ! $binsize =~ ^-?[0-9]+$ ]];
+			then
+				echo "ERROR: binSize should be an integer."
+				exit 1
+		fi
 
-if [[ $normalizeusing != "RPKM" ]] && [[ $normalizeusing != "CPM" ]] && [[ $normalizeusing != "BPM" ]] && [[ $normalizeusing != "RPGC" ]] && [[ $normalizeusing != "None" ]];
-	then
-		echo "ERROR: invalid normalisation method chosen."
-		echo "Available methods: RPKM, CPM, BPM, RPGC or None"
-		exit 1
-fi
+		if [[ $normalizeusing != "RPKM" ]] && [[ $normalizeusing != "CPM" ]] && [[ $normalizeusing != "BPM" ]] && [[ $normalizeusing != "RPGC" ]] && [[ $normalizeusing != "None" ]];
+			then
+				echo "ERROR: invalid normalisation method chosen."
+				echo "Available methods: RPKM, CPM, BPM, RPGC or None"
+				exit 1
+		fi
 
-if [[ ! $extendreads =~ ^-?[0-9]+$ ]];
-	then
-		echo "ERROR: extendReads should be an integer."
-		exit 1
-fi
+		if [[ ! $extendreads =~ ^-?[0-9]+$ ]];
+			then
+				echo "ERROR: extendReads should be an integer."
+				exit 1
+		fi
 
-if [[ ! $effectivegenomesize =~ ^-?[0-9]+$ ]];
-	then
-		echo "ERROR: effectiveGenomeSize should be an integer."
-		echo "See https://deeptools.readthedocs.io/en/latest/content/feature/effectiveGenomeSize.html"
-		exit 1
-fi
+		if [[ ! $effectivegenomesize =~ ^-?[0-9]+$ ]];
+			then
+				echo "ERROR: effectiveGenomeSize should be an integer."
+				echo "See https://deeptools.readthedocs.io/en/latest/content/feature/effectiveGenomeSize.html"
+				exit 1
+		fi
 
-
-#creates bigWig files
-bigwig_dir=bigwig_bin$binsize
-mkdir -p "$bigwig_dir"
-
-function big_wig {
-	bigwig_output="${file%-dedupl-sort-bl.bam}-norm.bw"
-	bigwig_output=${bigwig_output##*/}
-	bamCoverage -p $max_threads --binSize "$binsize" --normalizeUsing "$normalizeusing" --extendReads "$extendreads" --effectiveGenomeSize "$effectivegenomesize" -b $file -o $bigwig_dir/$bigwig_output 2>> bigwig.log
-}  
-
-
-echo "Creating BigWig files"
-dedup_folder="deduplication/"
-
-if [[ ! -d  "$dedup_folder" ]];
-	then
+		#creates bigWig files
+		bigwig_dir=bigwig_bin$binsize
+		bigwig_dir_dedup=bigwig_dedup_bin$binsize
 		
+		function big_wig {
+		#bigwig_output="${file%-dedupl-sort-bl.bam}-norm.bw"
+		bigwig_output=${bigwig_output##*/}
+		bamCoverage -p $threads --binSize "$binsize" --normalizeUsing "$normalizeusing" --extendReads "$extendreads" --effectiveGenomeSize "$effectivegenomesize" -b $file -o $bigwig_dir/$bigwig_output 2>> bigwig.log
+		}  
 
 
-
-
-
-sorted_bam=$(ls -l bam/*dedupl-sort-bl.bam 2> /dev/null | wc -l) #returns zero without *dedupl-sort-bl.bam files
-if [[ $sorted_bam != 0 ]]; 
-then
-	index_bam=$(ls -l bam/*dedupl-sort-bl.bam.bai 2> /dev/null | wc -l)
-	if [[ $index_bam == 0 ]];
-	then
-		for file in bam/*dedupl-sort-bl.bam
-		do 
-			samtools index -@ $max_threads -b $file 2>> bigwig.log
-			big_wig
-		done
-	elif [[ $index_bam != 0 ]];
-	then
-		for file in bam/*dedupl-sort-bl.bam
-		do 
-			bigwig_output="${file%-dedupl-sort-bl.bam}-norm.bw"
-			big_wig
-		done
-	fi
-elif [[ $sorted_bam == 0 ]]; 
-then	
-	index_bam=$(ls -l bam/*sort-bl.bam.bai 2> /dev/null | wc -l)
-	if [[ $index_bam == 0 ]];
-	then
-		for file in bam/*sort-bl.bam
-		do 
-			samtools index -@ $max_threads -b $file 2>> bigwig.log
-			big_wig
-		done
-	elif [[ $index_bam != 0 ]];
-	then
-		for file in bam/*sort-bl.bam
-		do 
-			big_wig
-		done
-	fi		
+		if [[ -d  "$bam_folder" ]] && [[ ! -d  "$bigwig_dir" ]];
+			then
+				echo "Creating BigWig files"
+				mkdir -p "$bigwig_dir"
+				for file in bam/*bam
+				do 
+					bigwig_output="${file%.bam}-norm.bw"
+					big_wig
+				done
+		elif [[ -d  "$dedup_folder" ]] && [[ ! -d  "$bigwig_dir_dedup" ]];
+			then
+				echo "Creating BigWig files"
+				mkdir -p "$bigwig_dir_dedup"
+				bigwig_dir="$bigwig_dir_dedup"
+				for file in "$dedup_folder"/*bam
+				do 
+					bigwig_output="${file%.bam}-dedup-norm.bw"
+					big_wig
+				done
+		fi
 fi
-	
-END
 
 
-#filter out reads below cutoff
+###filter out reads below cutoff
 filter_folder="filter/"
 
 function filter_reads {
@@ -297,26 +285,24 @@ function filter_reads {
 if [[ "$cutoff" == 0 ]];
 	then
 		echo "No size filtering of reads selected"
-	else
-		if [[ ! -d  "$filter_folder" ]] && [[ -d  "$dedup_folder" ]];
-			then
-				mkdir filter
-				echo "Filtering reads <${cutoff} bp"
-				for bam in deduplication/*.bam
-				do
-					filter_reads
-				done
-		elif [[ ! -d  "$filter_folder" ]] && [[ ! -d  "$dedup_folder" ]];
-			then
-				mkdir filter
-				echo "Filtering reads <${cutff} bp"
-				for bam in bam/*.bam
-				do
-					filter_reads
-				done
-		else
-			echo "Size filtering already performed"
-		fi
+elif [[ ! -d  "$filter_folder" ]] && [[ -d  "$dedup_folder" ]];
+	then
+		mkdir filter
+		echo "Filtering reads <${cutoff} bp"
+		for bam in deduplication/*.bam
+		do
+			filter_reads
+		done
+elif [[ ! -d  "$filter_folder" ]] && [[ ! -d  "$dedup_folder" ]];
+	then
+		mkdir filter
+		echo "Filtering reads <${cutff} bp"
+		for bam in bam/*.bam
+		do
+			filter_reads
+		done
+else
+	echo "Size filtering already performed"
 fi
 
 #peak calling
