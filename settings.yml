@@ -3,6 +3,15 @@ bigWig:
   normalizeUsing: "RPKM"
   extendReads: "200"
   effectiveGenomeSize: "2827437033"
+ngsplot:
+  feature: "tss"
+  window: 3000
+MACS2:
+  format: "AUTO"
+  genome: "hs"
+  genome-size: 2.7e9
+  qvalue: 0.05
+  extsize: 200
 peaks:
   TF:
     - peak: "narrowPeak"
