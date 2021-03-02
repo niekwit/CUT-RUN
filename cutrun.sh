@@ -10,36 +10,42 @@ cutoff=0
 align_mm=0
 big_wig=""
 reads_length=""
+peak=""
+ngsplot=""
 
 PICARD=$(find $HOME -name picard.jar)
 SCRIPT_DIR=$(find $HOME -type d -name "CUT-RUN")
 WORK_DIR=$(pwd)/
 
-function usage {                                    
-	echo "Usage: $0 [-g <genome build>] [-r OPTIONAL:renames NGS files] [-m <INT> mismatches allowed for alignment (standard is zero) OPTIONAL] [-t <INT> number of CPU threads to be used]"
-	exit 2
+function usage {
+echo "Usage: $0 [-g <genome build>] [-r OPTIONAL:renames NGS files] [-m <INT> mismatches allowed for alignment (standard is zero) OPTIONAL] [-t <INT> number of CPU threads to be used]"
+exit 2
 }
 
-while getopts 't:g:rdm:f:bl?h' c
+while getopts 't:g:rdm:f:blpn?h' c
 do
 	case $c in
-		t) 
+		t)
 			threads=$OPTARG;;
-		g) 
+		g)
 			genome="$OPTARG";;
-		r)	
+		r)
 			rename_config="rename.config";;
-		d)	
+		d)
 			dedup="TRUE";;
-		m)  
+		m)
 			align_mm=$OPTARG;;
-        	f) 
+		f)
 			cutoff=$OPTARG;;
-		b) 	
+		b)
 			big_wig="TRUE";;
 		l)
-			reads_length="TRUE";;	
-		h|?) 	
+			reads_length="TRUE";;
+		p)
+			peak="TRUE";;
+		n)
+			ngsplot="TRUE";;
+		h|?)
 			usage;;
 	esac
 done
@@ -93,7 +99,7 @@ fi
 
 ###Fastq quality control
 fastqc_folder="fastqc/"
-if [[ ! -d  "$fastqc_folder" ]]; 
+if [[ ! -d "$fastqc_folder" ]]; 
 	then
 		echo "Performing FASTQC"
 		mkdir fastqc
@@ -106,7 +112,7 @@ fi
 
 ###trimming samples
 trim_folder="trim/"
-if [[ ! -d  "$trim_folder" ]];
+if [[ ! -d "$trim_folder" ]];
 	then
 		echo "Performing read trimming"
 		mkdir -p trim
@@ -123,7 +129,7 @@ fi
 ###aligning samples 
 bam_folder="bam/"
 
-if [[ ! -d  "$bam_folder" ]];
+if [[ ! -d "$bam_folder" ]];
 	then
 		mkdir -p bam
 		#touch align.log
@@ -142,14 +148,14 @@ if [[ ! -d  "$bam_folder" ]];
 		done
 else
 	echo "Alignment already performed"
-fi                                                                                                                                      
+fi
 
 #--dovetail --phred33
 #--local --very-sensitive-local --no-unal --no-mixed --no-discordant --phred33 -I 10 -X 700
 
 ###deduplication
 dedup_folder="deduplication/"
-if [[ "$dedup" == "TRUE" ]] && [[ ! -d  "$dedup_folder" ]];
+if [[ "$dedup" == "TRUE" ]] && [[ ! -d "$dedup_folder" ]];
 	then
 		mkdir -p deduplication
 		touch deduplication.log
@@ -181,7 +187,7 @@ Rscript $SCRIPT_DIR/read_length.R "$WORK_DIR" "$out_file" "$base_file" "$outdir"
 
 reads_length_folder=read-lengths
 reads_length_folder_dedup="$reads_length_folder"-dedup
-if [[ "$reads_length" == "TRUE" ]] && [[ ! -d  "$reads_length_folder" ]];
+if [[ "$reads_length" == "TRUE" ]] && [[ ! -d "$reads_length_folder" ]];
 	then
 		echo "Generating histograms of read lengths"
 		mkdir "$reads_length_folder"
@@ -190,7 +196,7 @@ if [[ "$reads_length" == "TRUE" ]] && [[ ! -d  "$reads_length_folder" ]];
 		do 
 			reads_length
 		done
-elif [[ "$reads_length" == "TRUE" ]] && [[ ! -d  "$reads_length_folder_dedup" ]];
+elif [[ "$reads_length" == "TRUE" ]] && [[ ! -d "$reads_length_folder_dedup" ]];
 	then
 		echo "Generating histograms of read lengths"
 		mkdir "$reads_length_folder_dedup"
@@ -249,8 +255,7 @@ if [[ "$big_wig" == "TRUE" ]];
 		bamCoverage -p $threads --binSize "$binsize" --normalizeUsing "$normalizeusing" --extendReads "$extendreads" --effectiveGenomeSize "$effectivegenomesize" -b $file -o $bigwig_dir/$bigwig_output 2>> bigwig.log
 		}  
 
-
-		if [[ -d  "$bam_folder" ]] && [[ ! -d  "$bigwig_dir" ]];
+		if [[ -d "$bam_folder" ]] && [[ ! -d "$bigwig_dir" ]];
 			then
 				echo "Creating BigWig files"
 				mkdir -p "$bigwig_dir"
@@ -259,7 +264,7 @@ if [[ "$big_wig" == "TRUE" ]];
 					bigwig_output="${file%.bam}-norm.bw"
 					big_wig
 				done
-		elif [[ -d  "$dedup_folder" ]] && [[ ! -d  "$bigwig_dir_dedup" ]];
+		elif [[ -d "$dedup_folder" ]] && [[ ! -d "$bigwig_dir_dedup" ]];
 			then
 				echo "Creating BigWig files"
 				mkdir -p "$bigwig_dir_dedup"
@@ -285,7 +290,7 @@ function filter_reads {
 if [[ "$cutoff" == 0 ]];
 	then
 		echo "No size filtering of reads selected"
-elif [[ ! -d  "$filter_folder" ]] && [[ -d  "$dedup_folder" ]];
+elif [[ ! -d "$filter_folder" ]] && [[ -d "$dedup_folder" ]];
 	then
 		mkdir filter
 		echo "Filtering reads <${cutoff} bp"
@@ -293,10 +298,10 @@ elif [[ ! -d  "$filter_folder" ]] && [[ -d  "$dedup_folder" ]];
 		do
 			filter_reads
 		done
-elif [[ ! -d  "$filter_folder" ]] && [[ ! -d  "$dedup_folder" ]];
+elif [[ ! -d "$filter_folder" ]] && [[ ! -d "$dedup_folder" ]];
 	then
 		mkdir filter
-		echo "Filtering reads <${cutff} bp"
+		echo "Filtering reads <${cutoff} bp"
 		for bam in bam/*.bam
 		do
 			filter_reads
@@ -305,6 +310,62 @@ else
 	echo "Size filtering already performed"
 fi
 
-#peak calling
+
+###create metagene plots
+ngsplot_folder="ngsplot"
+ngsplot_folder_dedup="$ngsplot_folder-dedup"
+feature=$(cat settings.yaml | shyaml get-value ngsplot.feature)
+window=$(cat settings.yaml | shyaml get-value ngsplot.window)
+
+function ngs_plot {
+echo "Generating metagene plots and heatmaps"
+for file in $bam_folder/*.bam
+do
+	case $file in 
+		*input*) continue;;
+		*) 
+			ngs_output=${file%.bam}
+			ngs_output=${ngs_output##*/}
+			out_dir="$ngsplot_folder/$ngs_output"
+			mkdir -p "$out_dir"
+			ngs.plot.r -G "$genome" -R "$feature" -C $file -O "$out_dir/${ngs_output}_$feature" -T $ngs_output -L "$window" 
+	esac
+done
+}
+
+if [[ "$ngsplot" == "TRUE" ]];
+	then
+		#check input variables
+		if [[ $feature != "tss" ]] && [[ $feature != "tes" ]] && [[ $feature != "genebody" ]] && [[ $feature != "exon" ]] && [[ $feature != "cgi" ]] && [[ $feature != "enhancer" ]] && [[ $feature != "dhs" ]] && [[ $feature != "bed" ]];
+		then
+			echo "ERROR: wrong genomic feature selected for ngs.plot.R"
+			echo "Available options: tss, tes, genebody, exon, cgi, enhancer, dhs or bed"
+			exit 1
+		fi 
+		if [[ ! $window =~ ^-?[0-9]+$ ]];
+		then
+			echo "ERROR: window size should be an integer for ngs.plot.R"
+			exit 1
+		fi
+		
+		#plot
+		if [[ -d "$bam_folder" ]] && [[ ! -d "$ngsplot_folder" ]];
+			then
+				ngs_plot
+		elif [[ -d "$dedup_folder" ]] && [[ ! -d "$ngsplot_folder_dedup" ]];
+			then
+				bam_folder=$dedup_folder
+				ngsplot_folder=$ngsplot_folder_dedup
+				ngs_plot
+		fi
+fi
+
+
+###peak calling
+if [[ "$peak" == "TRUE" ]];
+	then
+		echo "Calling and annotating peaks"
+fi
+
 
 
