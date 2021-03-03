@@ -12,9 +12,10 @@ big_wig=""
 reads_length=""
 peak=""
 ngsplot=""
+qc=""
 
-PICARD=$(find $HOME -name picard.jar)
-SCRIPT_DIR=$(find $HOME -type d -name "CUT-RUN")
+PICARD=$(find $HOME -name picard.jar) #make sure you only have one copy of picard.jar!
+SCRIPT_DIR=$(find $HOME -type d -name "CUT-RUN") #make sure you only have one copy of the CUT-RUN folder!
 WORK_DIR=$(pwd)/
 
 function usage {
@@ -22,7 +23,7 @@ echo "Usage: $0 [-g <genome build>] [-r OPTIONAL:renames NGS files] [-m <INT> mi
 exit 2
 }
 
-while getopts 't:g:rdm:f:blpn?h' c
+while getopts 't:g:rdm:f:blpnq?h' c
 do
 	case $c in
 		t)
@@ -45,6 +46,8 @@ do
 			peak="TRUE";;
 		n)
 			ngsplot="TRUE";;
+		q)
+			qc="TRUE";;
 		h|?)
 			usage;;
 	esac
@@ -128,13 +131,12 @@ fi
 
 ###aligning samples 
 bam_folder="bam/"
-#to do: remove blacklisted regions
 if [[ ! -d "$bam_folder" ]];
 	then
 		mkdir -p bam
 		#touch align.log
 		index_path=$(cat "$SCRIPT_DIR/genome.yml" | shyaml get-value genome.$genome.0 | awk '{print$2}')
-		#black_list_path=$(cat "$SCRIPT_DIR/genome.yml" | shyaml get-value genome.$genome.1 | awk '{print$2}')
+		black_list_path=$(cat "$SCRIPT_DIR/genome.yml" | shyaml get-value genome.$genome.1 | awk '{print$2}')
 		for read1 in trim/*"_1_val_1.fq.gz"
 		do 
 			read2="${read1%_1_val_1.fq.gz}_2_val_2.fq.gz"
@@ -143,15 +145,15 @@ if [[ ! -d "$bam_folder" ]];
 			echo "$base_name" >> align.log
 			align_output="bam/$base_name.bam"
 			echo "Aligning $base_name"
-			bowtie2 -p "$threads" --local --very-sensitive-local --no-unal --no-mixed --no-discordant --phred33 -I 10 -X 700 -x "$index_path" -1 "$read1" -2 "$read2" 2>> align.log | samtools view -q 15 -F 260 -bS -@ "$threads" - | samtools sort -@ "$threads" - > "$align_output"
-			samtools index -b -@$threads "$align_output"
+			bowtie2 -p "$threads" --local --very-sensitive-local --no-unal --no-mixed --no-discordant --phred33 -I 10 -X 700 -x "$index_path" -1 "$read1" -2 "$read2" 2>> align.log | samtools view -q 15 -F 260 -bS -@ "$threads" - | bedtools intersect -v -a "stdin" -b "$black_list_path" -nonamecheck | samtools sort -@ "$threads" - > "$align_output"
+			samtools index -b -@ "$threads" "$align_output"
 		done
 else
 	echo "Alignment already performed"
 fi
 
-#--dovetail --phred33
-#--local --very-sensitive-local --no-unal --no-mixed --no-discordant --phred33 -I 10 -X 700
+#--dovetail --phred33 #Yuan settings
+#--local --very-sensitive-local --no-unal --no-mixed --no-discordant --phred33 -I 10 -X 700 #Henikoff settings
 
 ###deduplication
 dedup_folder="deduplication/"
@@ -168,12 +170,38 @@ if [[ "$dedup" == "TRUE" ]] && [[ ! -d "$dedup_folder" ]];
 			samtools index -b -@$threads "$dedup_output"
 		done
 else
-    echo "Deduplication already performed/not selected"
+	echo "Deduplication already performed/not selected"
 fi
 
-###generate histogram of reads lengths
-#GSE125988
 
+###QC analysis of samples
+qc_folder="qc/"
+qc_dedup_folder="qc-dedup/"
+
+function qc {
+sorted_sample_list=$(ls $bam_folder/*.bam | tr "\n" " ")
+multiBamSummary bins --numberOfProcessors "$threads" -b $sorted_sample_list -o $qc_folder/multibamsummary.npz 2>> qc.log #deeptools
+plotPCA -in $qc_folder/multibamsummary.npz -o $qc_folder/PCA_readCounts_all.png -T "Principle Component Analysis" 2>> qc.log #deeptools
+plotCorrelation -in $qc_folder/multibamsummary.npz --corMethod spearman --skipZeros --plotTitle "Spearman Correlation of Read Counts" --colorMap viridis --whatToPlot heatmap -o $qc_folder/heatmap_SpearmanCorr_readCounts.png --outFileCorMatrix SpearmanCorr_readCounts.tab #deeptools
+}
+
+if [[ "$qc" == "TRUE" ]];
+	then
+		if [[ -d "$bam_folder" ]] && [[ ! -d "$qcfolder" ]];
+			then
+				qc
+		elif [[ -d "$dedup_folder" ]] && [[ ! -d "$qc_folder_dedup" ]];
+			then
+				bam_folder=$dedup_folder
+				qc_folder=$qc_dedup_folder
+				qc
+		else
+			echo "QC analysis already performed"
+		fi
+fi
+
+
+###generate histogram of reads lengths
 function reads_length {
 #get frequency of read lengths
 base_file="${file%.bam}"
@@ -193,7 +221,7 @@ if [[ "$reads_length" == "TRUE" ]] && [[ ! -d "$reads_length_folder" ]];
 		mkdir "$reads_length_folder"
 		outdir="$reads_length_folder"
 		for file in bam/*.bam
-		do 
+		do
 			reads_length
 		done
 elif [[ "$reads_length" == "TRUE" ]] && [[ ! -d "$reads_length_folder_dedup" ]];
@@ -253,7 +281,7 @@ if [[ "$big_wig" == "TRUE" ]];
 		#bigwig_output="${file%-dedupl-sort-bl.bam}-norm.bw"
 		bigwig_output=${bigwig_output##*/}
 		bamCoverage -p $threads --binSize "$binsize" --normalizeUsing "$normalizeusing" --extendReads "$extendreads" --effectiveGenomeSize "$effectivegenomesize" -b $file -o $bigwig_dir/$bigwig_output 2>> bigwig.log
-		}  
+		}
 
 		if [[ -d "$bam_folder" ]] && [[ ! -d "$bigwig_dir" ]];
 			then
@@ -321,7 +349,7 @@ function ngs_plot {
 echo "Generating metagene plots and heatmaps"
 for file in $bam_folder/*.bam
 do
-	case $file in 
+	case $file in
 		*input*) continue;;
 		*) 
 			ngs_output=${file%.bam}
@@ -341,7 +369,7 @@ if [[ "$ngsplot" == "TRUE" ]];
 			echo "ERROR: wrong genomic feature selected for ngs.plot.R"
 			echo "Available options: tss, tes, genebody, exon, cgi, enhancer, dhs or bed"
 			exit 1
-		fi 
+		fi
 		if [[ ! $window =~ ^-?[0-9]+$ ]];
 		then
 			echo "ERROR: window size should be an integer for ngs.plot.R"
@@ -413,3 +441,4 @@ if [[ "$peak" == "TRUE" ]];
 		done < "$input"
 		rm macs2-samples-temp.conf
 fi
+
