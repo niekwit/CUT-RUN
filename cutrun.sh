@@ -414,17 +414,19 @@ if [[ "$peak" == "TRUE" ]];
 			then
 				echo "ERROR: invalid genome chosen."
 				echo "Available genomes: hs, mm, ce and dm"
-
-		if [[ ! $genome_size =~ ^-?[0-9]+$ ]];
-			then
-				echo "ERROR: genome size should be an integer."
 				exit 1
 		fi
 
-		if [[ ! $qvalue > 0.05 ]];
+#		if [[ ! $genome_size =~ ^-?[0-9]+$ ]];
+#			then
+#				echo "ERROR: genome size should be an integer."
+#				exit 1
+#		fi
+
+		if [[ $qvalue > 0.05 ]];
 			then
 				echo "WARNING: q-value is higher than default 0.05"
-				exit 1
+				#exit 1
 		fi
 		
 		echo "Calling and annotating peaks"
